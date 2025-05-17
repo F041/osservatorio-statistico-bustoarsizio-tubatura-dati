@@ -42,6 +42,14 @@ jobs:
       run: python scraper_scripts/db_handler.py # Assumendo che sia eseguibile così
       # Questo dovrebbe creare il file pagamenti.db nella root del checkout
 
+    - name: List files in workspace # DEBUG
+      run: |
+        ls -R
+        echo "Contenuto di data/: "
+        ls -R data || echo "Cartella data/ non trovata o vuota"
+        echo "Contenuto di data/database/: "
+        ls -R data/database || echo "Cartella data/database/ non trovata o vuota"
+
     - name: Get current date for release tag
       id: date
       run: echo "TAG_DATE=$(date +'%Y-%m-%d')" >> $GITHUB_OUTPUT
@@ -55,8 +63,7 @@ jobs:
           Database SQLite (pagamenti.db) aggiornato con i dati al ${{ steps.date.outputs.TAG_DATE }}.
           Questo DB è il risultato dell'esecuzione di scraper, etl_processor e db_handler.
         files: |
-          data/database/busto_pagamenti.db   # Assicurati che db_handler.py crei questo file nella root
-                         # o adatta il percorso qui se viene creato altrove (es. data/pagamenti.db)
+          data/database/busto_pagamenti.db   
         draft: false
         prerelease: false
       env:
