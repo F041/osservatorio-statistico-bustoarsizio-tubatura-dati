@@ -118,7 +118,7 @@ def run_scraper_main():
     driver = None
     try:
         logging.info("Inizializzazione WebDriver Firefox..."); service = FirefoxService(GeckoDriverManager().install())
-        options = FirefoxOptions(); # options.add_argument("--headless")
+        options = FirefoxOptions(); options.add_argument("--headless"); # Modalità headless per CI
         options.add_argument("--disable-gpu"); options.add_argument("--window-size=1920,1080");
         driver = webdriver.Firefox(service=service, options=options); wait = WebDriverWait(driver, 30)
 
