@@ -2,6 +2,13 @@ name: Monthly Data Scraping and DB Release
 
 on:
   push:
+    branches:
+      - main
+    paths-ignore: # Ignora i push che modificano SOLO questi file/percorsi
+      - 'README.md'
+      - 'docs/**'
+      - 'screenshots/**'
+      - '.gitignore'
   workflow_dispatch:
   schedule:
     - cron: '0 3 1 * *'
