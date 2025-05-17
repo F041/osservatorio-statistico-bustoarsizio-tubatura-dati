@@ -55,7 +55,7 @@ jobs:
           Database SQLite (pagamenti.db) aggiornato con i dati al ${{ steps.date.outputs.TAG_DATE }}.
           Questo DB è il risultato dell'esecuzione di scraper, etl_processor e db_handler.
         files: |
-          pagamenti.db   # Assicurati che db_handler.py crei questo file nella root
+          data/database/busto_pagamenti.db   # Assicurati che db_handler.py crei questo file nella root
                          # o adatta il percorso qui se viene creato altrove (es. data/pagamenti.db)
         draft: false
         prerelease: false
