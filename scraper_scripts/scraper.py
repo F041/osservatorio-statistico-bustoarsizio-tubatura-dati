@@ -10,25 +10,15 @@ from urllib.parse import urljoin, urlparse, unquote
 import logging
 import re
 import csv
-import math
-
-# Selenium Imports
-from selenium import webdriver
-from selenium.webdriver.firefox.service import Service as FirefoxService
-from selenium.webdriver.firefox.options import Options as FirefoxOptions
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import NoSuchElementException, TimeoutException, ElementClickInterceptedException
-from webdriver_manager.firefox import GeckoDriverManager
 
 # --- CONFIGURAZIONE ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 BASE_URL = "https://bustoarsizio.trasparenza-valutazione-merito.it"
-MAIN_PAGE_URL = "https://bustoarsizio.trasparenza-valutazione-merito.it/"
-MENU_PAGAMENTI_XPATH = "//*[@id='menu-item-header-35125']"
-SUBMENU_DATI_PAGAMENTI_SELECTOR_ID = "menu-item-header-35127"
-IFRAME_SELECTOR_ID = "corrente-iframe"
+# Pagina caricata nell'iframe dalla voce di menu "Pagamenti dell'amministrazione > Dati sui pagamenti"
+# (data-mainurl di #menu-item-header-35127). Da ottobre 2026 Firefox/Selenium riceve la home a pochi KB/s
+# e va in timeout, mentre via HTTP la lista e la paginazione funzionano: niente più browser.
+LIST_PAGE_URL = f"{BASE_URL}/web/trasparenza/papca-g/-/papca/igrid/36236"
+MAX_LIST_PAGES = 5
 
 # --- Percorsi  ---
 # Ottieni la directory dello script corrente (src)
@@ -124,86 +114,33 @@ def extract_data_from_html(html_content):
     return relevant_items
 
 
-# --- CICLO PRINCIPALE CON IFRAME SENZA CLICK INTERNI ---
+# --- CICLO PRINCIPALE: LISTA ATTI VIA HTTP ---
 def run_scraper_main():
     all_items_found = []; processed_detail_urls = set(); excel_links_found = []
     downloaded_files_summary = [] # Inizializzazione per riepilogo
-    driver = None
-    try:
-        logging.info("Inizializzazione WebDriver Firefox..."); service = FirefoxService(GeckoDriverManager().install())
-        options = FirefoxOptions(); options.add_argument("--headless"); # Modalità headless per CI
-        options.add_argument("--disable-gpu"); options.add_argument("--window-size=1920,1080");
-        driver = webdriver.Firefox(service=service, options=options); wait = WebDriverWait(driver, 30)
 
-        # 1. Vai alla pagina principale
-        logging.info(f"Navigazione alla pagina principale: {MAIN_PAGE_URL}"); driver.get(MAIN_PAGE_URL)
-        wait.until(EC.presence_of_element_located((By.TAG_NAME, "body"))); logging.info("Pagina principale caricata.")
+    # La paginazione è lato server e legata al cookie di sessione: "Avanti" è un link GET (paginationAction=NEXT)
+    logging.info("--- Inizio Paginazione & Estrazione (HTTP) ---"); page_url = LIST_PAGE_URL; page_count = 1
+    while page_url and page_count <= MAX_LIST_PAGES:
+        logging.info(f"--- Processo Pagina Lista {page_count}: {page_url} ---")
+        try: response = session.get(page_url, timeout=60); response.raise_for_status(); current_html = response.text
+        except requests.exceptions.RequestException as e: logging.error(f"Errore accesso lista pagina {page_count}: {e}"); break
+        items_on_page = extract_data_from_html(current_html)
 
-        # 2. Clicca sul menu Pagamenti per aprire il POPUP ROSSO
-        logging.info(f"Tentativo click JS menu pagamenti ({MENU_PAGAMENTI_XPATH})...")
-        menu_pagamenti = wait.until(EC.presence_of_element_located((By.XPATH, MENU_PAGAMENTI_XPATH)))
-        driver.execute_script("arguments[0].click();", menu_pagamenti)
-        logging.info("Click JS menu pagamenti eseguito.")
+        # Aggiungi elementi trovati
+        newly_added_count = 0
+        for item in items_on_page:
+            detail_url = item['detail_url']
+            if detail_url not in processed_detail_urls: processed_detail_urls.add(detail_url); all_items_found.append(item); newly_added_count += 1
+        logging.info(f"Aggiunti {newly_added_count} nuovi atti da pagina {page_count}. Totale: {len(all_items_found)}")
 
-        # 3. Clicca sulla voce "Dati sui pagamenti" DENTRO IL POPUP ROSSO
-        logging.info(f"Tentativo click voce 'Dati sui pagamenti' nel popup (ID: {SUBMENU_DATI_PAGAMENTI_SELECTOR_ID})...")
-        submenu_popup_pagamenti = wait.until(EC.element_to_be_clickable((By.ID, SUBMENU_DATI_PAGAMENTI_SELECTOR_ID)))
-        try: submenu_popup_pagamenti.click()
-        except ElementClickInterceptedException: logging.warning("Click normale intercettato sottomenu, uso JS..."); driver.execute_script("arguments[0].click();", submenu_popup_pagamenti)
-        logging.info("Click voce 'Dati sui pagamenti' nel popup OK.")
-
-        # 4. Attendi e passa all'iframe
-        logging.info("Attesa caricamento iframe..."); iframe_locator = (By.ID, IFRAME_SELECTOR_ID)
-        wait.until(EC.frame_to_be_available_and_switch_to_it(iframe_locator))
-        logging.info(f"Passato al contesto dell'iframe (#{IFRAME_SELECTOR_ID}).")
-        time.sleep(2)
-
-        # --- ORA SIAMO DENTRO L'IFRAME ---
-        # 5. RIMOZIONE CLICK INTERNI: Assumiamo che la vista sia già corretta
-        logging.info("Assumendo vista iframe corretta, estraggo direttamente...")
-
-        # 6. Estrazione/Paginazione DENTRO l'iframe
-        logging.info("--- Inizio Paginazione & Estrazione (Iframe) ---"); page_count = 1; max_pages_selenium = 5 # Messo limite basso per testare paginazione se serve
-        while page_count <= max_pages_selenium:
-             logging.info(f"--- Processo Pagina Selenium {page_count} (Iframe) ---")
-             try:
-                 # Attendi la tabella
-                 table_locator_css = "table.master-detail-list-table"; table_row_locator_css = f"{table_locator_css} tr.master-detail-list-line"
-                 wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, table_locator_css))); logging.debug(f"Tabella visibile (Pag {page_count})")
-                 current_html = driver.page_source; items_on_page = extract_data_from_html(current_html)                
-
-                 # Aggiungi elementi trovati
-                 newly_added_count = 0
-                 for item in items_on_page:
-                     detail_url = item['detail_url']
-                     if detail_url not in processed_detail_urls: processed_detail_urls.add(detail_url); all_items_found.append(item); newly_added_count += 1
-                 logging.info(f"Aggiunti {newly_added_count} nuovi atti da pagina {page_count}. Totale: {len(all_items_found)}")
-
-                 # Paginazione (se necessaria)
-                 try:
-                     next_button_locator = (By.LINK_TEXT, "Avanti"); next_button = driver.find_element(*next_button_locator)
-                     parent_li = next_button.find_element(By.XPATH, "./.."); is_disabled = 'disabled' in parent_li.get_attribute('class')
-                     if not is_disabled:
-                         logging.info("Bottone 'Avanti' (iframe) attivo. Click..."); old_table_row = None
-                         try: old_table_row = driver.find_element(By.CSS_SELECTOR, table_row_locator_css)
-                         except NoSuchElementException: pass
-                         logging.debug("Uso JS Click per 'Avanti'"); driver.execute_script("arguments[0].click();", next_button)
-                         logging.info("Click 'Avanti' (iframe) OK. Attesa...");
-                         if old_table_row:
-                             try: wait.until(EC.staleness_of(old_table_row)); wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR,"table.master-detail-list-table"))); logging.info("Tabella iframe aggiornata.")
-                             except TimeoutException: logging.warning("Timeout attesa aggiornamento iframe."); break
-                         else: time.sleep(3)
-                         page_count += 1
-                     else: logging.info("Bottone 'Avanti' (iframe) disabilitato."); break
-                 except NoSuchElementException: logging.info("Bottone 'Avanti' (iframe) non trovato."); break # Fine paginazione
-
-             except TimeoutException: logging.error("Timeout attesa elementi iframe."); break
-             except Exception as e: logging.error(f"Errore loop iframe: {e}"); break
-        if page_count > max_pages_selenium: logging.warning(f"Raggiunto limite pagine Selenium {max_pages_selenium}.")
-
-    finally:
-        if driver: logging.info("Chiusura WebDriver Firefox..."); driver.quit()
-    logging.info(f"--- Fine Fase Selenium: Trovati {len(all_items_found)} atti totali rilevanti. ---")
+        # Paginazione: link "Avanti" con href reale se attivo, "javascript:void(0)" se disabilitato
+        next_link = BeautifulSoup(current_html, 'lxml').find('a', string=re.compile(r'^\s*Avanti\s*$'))
+        next_href = next_link.get('href', '') if next_link else ''
+        if next_href.startswith('http') or next_href.startswith('/'): page_url = urljoin(BASE_URL, next_href); page_count += 1; time.sleep(0.5)
+        else: logging.info("Link 'Avanti' assente o disabilitato: fine paginazione."); page_url = None
+    if page_url: logging.warning(f"Raggiunto limite pagine lista {MAX_LIST_PAGES}.")
+    logging.info(f"--- Fine Fase Lista: Trovati {len(all_items_found)} atti totali rilevanti. ---")
 
     # --- Download e Riepilogo ---
     logging.info(f"--- FASE DOWNLOAD: Scarico allegati ({', '.join(ALLOWED_EXTENSIONS)}) ---")
