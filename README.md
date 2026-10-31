@@ -2,7 +2,7 @@
 
 ## A Cosa Serve Questo Progetto? (Spiegato Semplice)
 
-Immaginate di avere un compito importante: ogni mese, dovete andare a raccogliere dei dati specifici dal sito del Comune di Busto Arsizio, pulirli un po' e poi salvare questi dati aggiornati in un "archivio" digitale (un file chiamato database). Questo archivio serve poi ad un altro progetto (chiamato `esplora-pagamenti-busto-arsizio`) per mostrare questi dati in modo facile da consultare.
+Immaginate di avere un compito importante: ogni mese, dovete andare a raccogliere dei dati specifici dal sito del Comune di Busto Arsizio, pulirli un po' e poi salvare questi dati aggiornati in un "archivio" digitale (un file chiamato database). Questo archivio serve poi ad un altro progetto (chiamato `osservatorio-civico-busto-arsizio`, ex `esplora-pagamenti-busto-arsizio`) per mostrare questi dati in modo facile da consultare.
 
 Fare tutto questo a mano ogni mese può essere noioso e si rischia di dimenticarsene.
 
@@ -29,7 +29,7 @@ Una volta al mese (o quando viene avviato manualmente), il sistema GitHub Action
 *   **Tecnologie Usate**: Principalmente Python, con librerie come `requests`, `BeautifulSoup`, `selenium` per lo scraping, e `pandas` per la manipolazione dei dati.
 *   **Automazione**: GitHub Actions orchestra l'esecuzione mensile degli script e la creazione delle release.
 *   **Output**: L'artefatto principale è un file database SQLite (`busto_pagamenti.db` o simile) che viene allegato a ogni release.
-*   **Consumatore**: Il database prodotto è pensato per essere utilizzato dal repository `F041/esplora-pagamenti-busto-arsizio`.
+*   **Consumatore**: Il database prodotto è pensato per essere utilizzato dal repository `F041/osservatorio-civico-busto-arsizio` (sito: https://f041.github.io/osservatorio-civico-busto-arsizio/).
 
 ## Come Contribuire o Segnalare Problemi
 
