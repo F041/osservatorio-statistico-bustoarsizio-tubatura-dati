@@ -21,7 +21,8 @@ try:
         PROCESSED_CSV,
         parse_dates=['DataMandato'],
         dtype={'Anno': 'str', 'CIG': 'str', 'Beneficiario': 'str',
-               'DescrizioneMandato': 'str', 'NumeroMandato': 'str', 'ImportoEuro': 'str'} # Leggi come stringa
+               'DescrizioneMandato': 'str', 'NumeroMandato': 'str', 'ImportoEuro': 'str',
+               'CodiceFiscale': 'str', 'PartitaIVA': 'str'} # Leggi come stringa (CF/P.IVA hanno zeri iniziali)
     )
 
     # --- CORREZIONE LOGICA PARSING IMPORTO (per formato XXX.YY) ---
@@ -57,7 +58,8 @@ try:
     dtype_sqlite_strings = {
         'NumeroMandato': 'INTEGER', 'Anno': 'INTEGER', 'DataMandato': 'TIMESTAMP',
         'CIG': 'TEXT', 'Beneficiario': 'TEXT', 'ImportoEuro': 'REAL', # Conferma REAL
-        'DescrizioneMandato': 'TEXT', 'NomeFileOrigine': 'TEXT'
+        'DescrizioneMandato': 'TEXT', 'NomeFileOrigine': 'TEXT',
+        'CodiceFiscale': 'TEXT', 'PartitaIVA': 'TEXT'
     }
     df.to_sql( TABLE_NAME, conn, if_exists='replace', index=False,
                dtype=dtype_sqlite_strings, chunksize=1000, method='multi')

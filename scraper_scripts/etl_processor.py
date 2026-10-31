@@ -2,6 +2,7 @@
 import pandas as pd
 from pathlib import Path
 import logging
+import re
 import sys
 
 # Configurazione logging (simile allo scraper)
@@ -47,8 +48,20 @@ final_column_order = [
     'Beneficiario',
     'ImportoEuro',
     'DescrizioneMandato',
-    'NomeFileOrigine'
+    'NomeFileOrigine',
+    'CodiceFiscale',
+    'PartitaIVA'
 ]
+
+# Dai file 2025 il beneficiario arriva come "AGESP SPA - CF: 02212870121 - P. IVA: 02212870121":
+# separiamo i codici, altrimenti lo stesso beneficiario compare con due nomi diversi.
+BENEFICIARY_CODES_RE = re.compile(r'\s+-\s+(?:CF:\s*(?P<cf>[0-9A-Za-z]+))?\s*(?:-\s*)?(?:P\.\s?IVA:\s*(?P<piva>[0-9A-Za-z]+))?\s*$')
+
+def split_beneficiary_codes(value):
+    if not isinstance(value, str): return value, None, None
+    match = BENEFICIARY_CODES_RE.search(value)
+    if not match or not (match.group('cf') or match.group('piva')): return value, None, None
+    return value[:match.start()].strip(), match.group('cf'), match.group('piva')
 # --- FINE DEFINIZIONI ---
 
 def find_data_files(directory: Path) -> list[Path]:
@@ -203,6 +216,9 @@ for file_path in data_files:
 
         # --- 2d. Conversione Tipi (sulla struttura finale garantita) ---
         conversion_errors = []
+
+        split_codes = df['Beneficiario'].apply(split_beneficiary_codes)
+        df['Beneficiario'] = split_codes.str[0]; df['CodiceFiscale'] = split_codes.str[1]; df['PartitaIVA'] = split_codes.str[2]
 
         # I file 2025 hanno date testuali gg/mm/aaaa, gli altri datetime: uniformiamo prima di unire
         df['DataMandato'] = pd.to_datetime(df['DataMandato'], dayfirst=True, errors='coerce')
