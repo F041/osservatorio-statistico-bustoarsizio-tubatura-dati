@@ -2,6 +2,7 @@
 import pandas as pd
 from pathlib import Path
 import logging
+import sys
 
 # Configurazione logging (simile allo scraper)
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -26,8 +27,16 @@ standard_columns_map = {
     'data': 'DataMandato',
     'cig': 'CIG',
     'nominativo': 'Beneficiario',
-    'importo': 'ImportoEuro'
+    'importo': 'ImportoEuro',
+    # Sinonimi introdotti dai file 2025 (Anno, Numero, Data, Beneficiario/Versante, Causale, Spese)
+    'beneficiario': 'Beneficiario',
+    'causale': 'DescrizioneMandato',
+    'spese': 'ImportoEuro'
 }
+
+# Dal IV trimestre 2025 il Comune pubblica solo dati aggregati per tipologia di spesa
+# (Anno, Trimestre, Categoria di spesa, Tipologia di spesa, Importo, Beneficiario): niente mandati, non li carichiamo.
+AGGREGATE_MARKER_COLUMN = 'tipologia di spesa'
 
 # Lista ORDINATA di TUTTE le colonne che vogliamo nel DataFrame finale
 final_column_order = [
@@ -50,8 +59,8 @@ def find_data_files(directory: Path) -> list[Path]:
 
 data_files = find_data_files(DOWNLOAD_DIR)
 if not data_files:
-    logging.warning("Nessun file dati trovato da processare. Uscita.")
-    exit()
+    logging.error("Nessun file dati trovato da processare (lo scraper non ha scaricato nulla?). Uscita.")
+    sys.exit(1)
 
 all_dataframes = [] # Lista per contenere i DataFrame puliti di ogni file
 
@@ -77,6 +86,9 @@ for file_path in data_files:
         expected_keywords = {'numero', 'anno', 'data', 'importo', 'nominativo', 'descrizione'}
         if df_read is not None and not df_read.empty:
             actual_headers_lower = {str(col).lower().strip() for col in df_read.columns}
+            if AGGREGATE_MARKER_COLUMN in actual_headers_lower:
+                logging.warning(f"  -> File aggregato per tipologia di spesa (non elenco mandati). Saltato.")
+                continue
             keywords_found = sum(any(key in hdr for hdr in actual_headers_lower) for key in expected_keywords)
 
             if keywords_found >= 3: # Soglia: almeno 3 keyword
@@ -165,6 +177,8 @@ for file_path in data_files:
                           original_col_to_map = current_original
                           break # Prendi la prima corrispondenza non ancora usata
 
+            if std_val in rename_map.values():
+                 continue # Colonna standard già coperta da una chiave precedente (es. 'nominativo' prima di 'beneficiario')
             if original_col_to_map and original_col_to_map not in matched_original_cols:
                  rename_map[original_col_to_map] = std_val
                  matched_original_cols.add(original_col_to_map)
@@ -189,6 +203,12 @@ for file_path in data_files:
 
         # --- 2d. Conversione Tipi (sulla struttura finale garantita) ---
         conversion_errors = []
+
+        # I file 2025 hanno date testuali gg/mm/aaaa, gli altri datetime: uniformiamo prima di unire
+        df['DataMandato'] = pd.to_datetime(df['DataMandato'], dayfirst=True, errors='coerce')
+        invalid_dates = df['DataMandato'].isna().sum()
+        if invalid_dates > 0:
+            conversion_errors.append(f"DataMandato ({invalid_dates} date non convertite)")
 
         if 'ImportoEuro' in df.columns:
             logging.info(f"  -> Inizio pulizia e conversione 'ImportoEuro'...") # Log aggiunto
@@ -282,7 +302,9 @@ if all_dataframes:
 
     except Exception as e:
         logging.error(f"Errore durante l'unione o il salvataggio finale: {e}", exc_info=True)
+        sys.exit(1)
 else:
-    logging.warning("Nessun DataFrame processato con successo. Nessun file finale creato.")
+    logging.error("Nessun DataFrame processato con successo. Nessun file finale creato.")
+    sys.exit(1)
 
 logging.info("--- Script ETL completato ---")

@@ -1,7 +1,11 @@
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 from bs4 import BeautifulSoup
 import time
 import os
+import base64
+import binascii
 from urllib.parse import urljoin, urlparse, unquote
 import logging
 import re
@@ -44,9 +48,12 @@ os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 def is_relevant_object(text): text_upper = text.upper(); return "PAGAMENTI" in text_upper
 ALLOWED_EXTENSIONS = ('.xlsx', '.xls', '.ods')
 DOWNLOAD_LINK_SELECTOR = "a[href*='downloadAllegato']"
+ATOB_URL_RE = re.compile(r"atob\('([A-Za-z0-9+/=]+)'\)")
 DETAIL_LINK_TITLE = "Apri Dettaglio"
 session = requests.Session()
 session.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/115.0'})
+# Il server chiude spesso le connessioni (RemoteDisconnected / read timeout): ritenta con backoff
+session.mount("https://", HTTPAdapter(max_retries=Retry(total=4, backoff_factor=2, status_forcelist=(429, 500, 502, 503, 504), allowed_methods=("GET", "HEAD"))))
 # ────────────────────────────────────────────────────────────────────────────────────
 
 # --- Funzioni (Download, Estrazione HTML) - INVARIATE ---
@@ -57,11 +64,17 @@ def find_excel_link_in_detail(detail_url):
     except requests.exceptions.RequestException as e: logging.error(f"Errore accesso dettaglio {detail_url}: {e}"); return None
     soup = BeautifulSoup(html_content, 'lxml'); link_tag = soup.select_one(DOWNLOAD_LINK_SELECTOR)
     if link_tag and link_tag.has_attr('href'): excel_url = urljoin(BASE_URL, link_tag['href']); logging.info(f"Trovato link download ({DOWNLOAD_LINK_SELECTOR}): {excel_url}"); return excel_url
-    else:
-        for link_tag_fallback in soup.find_all('a', href=True):
-             href = link_tag_fallback['href']
-             if any((href.lower().endswith(ext + '?p_auth=') or href.lower().endswith(ext)) for ext in ALLOWED_EXTENSIONS + ('.zip', '.pdf', '.doc', '.p7m')): excel_url = urljoin(BASE_URL, href); logging.info(f"Trovato link download (fallback generico): {excel_url}"); return excel_url
-        logging.warning(f"Nessun link allegato trovato in: {detail_url}"); return None
+    # Dal 2026 il portale nasconde l'URL: href="javascript:void(0)" + onclick="window.open(atob('<base64>'))"
+    for onclick_tag in soup.select("a[onclick*='atob(']"):
+        match = ATOB_URL_RE.search(onclick_tag['onclick'])
+        if not match: continue
+        try: decoded_url = base64.b64decode(match.group(1)).decode('utf-8')
+        except (binascii.Error, UnicodeDecodeError): continue
+        if 'downloadAllegato' in decoded_url: excel_url = urljoin(BASE_URL, decoded_url); logging.info(f"Trovato link download (onclick atob): {excel_url}"); return excel_url
+    for link_tag_fallback in soup.find_all('a', href=True):
+         href = link_tag_fallback['href']
+         if any((href.lower().endswith(ext + '?p_auth=') or href.lower().endswith(ext)) for ext in ALLOWED_EXTENSIONS + ('.zip', '.pdf', '.doc', '.p7m')): excel_url = urljoin(BASE_URL, href); logging.info(f"Trovato link download (fallback generico): {excel_url}"); return excel_url
+    logging.warning(f"Nessun link allegato trovato in: {detail_url}"); return None
 def download_file(url: str, publication_object: str, data_id: str):
     try:
         logging.debug(f"Eseguo HEAD request per: {url}"); head_response = session.head(url, allow_redirects=True, timeout=20); head_response.raise_for_status(); final_url = head_response.url

@@ -5,3 +5,4 @@ lxml
 selenium
 webdriver-manager
 openpyxl
+xlrd

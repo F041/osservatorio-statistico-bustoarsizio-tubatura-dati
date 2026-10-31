@@ -74,6 +74,7 @@ def verify_row_counts():
 
     # Definisci le keyword qui, come nell'ETL
     expected_keywords = {'numero', 'anno', 'data', 'importo', 'nominativo', 'descrizione'}
+    AGGREGATE_MARKER_COLUMN = 'tipologia di spesa' # Stesso marker dell'ETL
 
     for file_path in raw_files:
         raw_count = 0 # Inizializza conteggio per questo file
@@ -92,6 +93,9 @@ def verify_row_counts():
 
                 if df_raw_h0 is not None and not df_raw_h0.empty:
                     actual_headers_lower = {str(col).lower().strip() for col in df_raw_h0.columns}
+                    if AGGREGATE_MARKER_COLUMN in actual_headers_lower:
+                        logging.info(f"  -> {file_path.name}: file aggregato per tipologia di spesa, escluso dall'ETL. Non verificato.")
+                        continue
                     keywords_found = sum(any(key in hdr for hdr in actual_headers_lower) for key in expected_keywords)
                     if keywords_found >= 3:
                         header_found_at = 0
